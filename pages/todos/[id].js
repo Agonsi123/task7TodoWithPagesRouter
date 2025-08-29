@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 // Use useRouter from 'next/router' for Pages Router
 import { useRouter } from "next/router";
+import { convertFirestoreTimestampToDate } from "../../utils/dateHelpers";
 // Import our API helper function to fetch a single todo
 import { fetchTodo } from "../../utils/helper"; 
 import { useAuth } from "../../contexts/AuthContext";
@@ -59,23 +60,34 @@ export async function getServerSideProps(context) {
 export default function TodoDetailsPage({ initialTodo }) {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth(); // Get authenticated user context
-
-  // For Pages Router, dynamic parameters are accessed via router.query
-  //   const { id } = router.query;
-
   const [todo, setTodo] = useState(initialTodo);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
+
+    // console.log("Raw initialTodo object from AAR props:", initialTodo);
+    // if (initialTodo) {
+    //   console.log("Raw createdAt from initialTodo:", initialTodo.createdAt);
+    //   console.log("Raw updatedAt from initialTodo:", initialTodo.updatedTodo); 
+    // }
+
     // If SSR didn't find the todo, or user isn't authenticated, or it's a client-side navigation
     if (!authLoading && user && !todo && router.isReady && router.query.id) {
       const loadClientSideTodoDetails = async () => {
         setLoading(true);
         setError(null);
+
         try {
           const fetchedTodo = await fetchTodo(router.query.id);
           setTodo(fetchedTodo);
+
+          // console.log("Raw fetchedTodo object (client-side):", fetchedTodo);
+          // if (fetchedTodo) {
+          //   console.log("Raw createdAt (client-side):", fetchedTodo.createdAt);
+          //   console.log("Raw updatedAt (client-side):", fetchedTodo.updatedAt);
+          // }
+
         } catch (err) {
           setError(`Failed to load todo details: ${err.message || "Unknown error"}`);
           console.error("Error loading todo details client-side:", err);
@@ -133,6 +145,11 @@ export default function TodoDetailsPage({ initialTodo }) {
     );
   }
 
+  // --- Displaying Dates using the new helper function ---
+  const createdAtDate = convertFirestoreTimestampToDate(todo.createdAt);
+  const updatedAtDate = convertFirestoreTimestampToDate(todo.updatedAt);
+  const dueDate = convertFirestoreTimestampToDate(todo.dueDate);
+
   return (
     <div className="min-h-screen bg-gray-100 p-4 sm:p-8 flex items-center justify-center">
       <div className="max-w-xl w-full bg-white p-6 sm:p-8 rounded-lg shadow-xl">
@@ -164,30 +181,24 @@ export default function TodoDetailsPage({ initialTodo }) {
               <span className="text-gray-600">{todo.priority}</span>
             </p>
           )}
-          {todo.dueDate && (
+          {dueDate && (
             <p>
               <strong className="text-gray-700">Due Date:</strong>{" "}
               {/* Ensure dueDate is a valid date string/timestamp from Firestore */}
-              <span className="text-gray-600">
-                {new Date(todo.dueDate.seconds * 1000).toLocaleDateString()}
-              </span>
+              <span className="text-gray-600">{dueDate.toLocaleDateString()}</span>
             </p>
           )}
-          {todo.createdAt && (
+          {createdAtDate && (
             <p>
               <strong className="text-gray-700">Created At:</strong>{" "}
               {/* Firestore Timestamps have seconds and nanoseconds, convert to JS Date */}
-              <span className="text-gray-600">
-                {new Date(todo.createdAt.seconds * 1000).toLocaleString()}
-              </span>
+              <span className="text-gray-600">{createdAtDate.toLocaleString()}</span>
             </p>
           )}
-          {todo.updatedAt && (
+          {updatedAtDate && (
             <p>
               <strong className="text-gray-700">Last Updated:</strong>{" "}
-              <span className="text-gray-600">
-                {new Date(todo.updatedAt.seconds * 1000).toLocaleString()}
-              </span>
+              <span className="text-gray-600">{updatedAtDate.toLocaleString()}</span>
             </p>
           )}
         </div>

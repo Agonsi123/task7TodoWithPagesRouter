@@ -1,47 +1,61 @@
 import React, { useState, useEffect } from "react";
-
 import { useAuth } from "@/contexts/AuthContext";
-
 import { auth } from "@/utils/firebaseClient";
-
 // Use useRouter from 'next/router' for Pages Router
 import { useRouter } from "next/router";
-
 // Import our new API helper functions
 import { fetchTodos, createTodo, updateTodo, deleteTodo } from "@/utils/helper";
-
 // Import signOut from client-side firebase/auth
 import { signOut } from "firebase/auth";
-import next from "next";
+// import next from "next";
 
-export default function TodoApp() {
+export default function TodoApp({ initialTodos }) {
   const { user } = useAuth(); // Get the current user
-  const [todos, setTodos] = useState([]);
-  const [newTodoTitle, setNewTodoTitle] = useState(""); 
-  const [loading, setLoading] = useState(true); // General loading state for API operations
+  const [todos, setTodos] = useState(initialTodos || []); //Initialize with SSR data
+  const [newTodoTitle, setNewTodoTitle] = useState("");
+  const [loading, setLoading] = useState(false); // General loading state for API operations
   const [error, setError] = useState(null);
   const router = useRouter();
 
   // Stores the ID of the todo currently being edited. Null if no todo is in edit mode.
   const [editingTodoId, setEditingTodoId] = useState(null);
   // Stores the title content of the todo being edited in the input field.
-  const [editingTodoTitle, setEditingTodoTitle] = useState(""); 
+  const [editingTodoTitle, setEditingTodoTitle] = useState("");
 
   // Function to load todos from the API
   const loadTodos = async () => {
-    setLoading(true); // Set loading true at the start of fetch
-    setError(null); // Clear previous errors before loading
+    // Only fetch if a user is logged in
+    if (!user) {
+      setTodos([]); // Clear todos if user logs out or is not authenticated
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
     try {
-      const data = await fetchTodos();
-      // Our API route directly returns an array of todos
+      const data = await fetchTodos(); // This fetchTodos uses client-side auth
       setTodos(data);
     } catch (err) {
-      setError("Failed to load todos. Please try refreshing." + err.message);
+      setError("Failed to load todos: " + err.message);
       console.error("Load todos error:", err);
     } finally {
-      setLoading(false); // Set loading false after fetch completes
+      setLoading(false);
     }
   };
+
+  // Effect to load todos when the component mounts or user changes
+  useEffect(() => {
+    // Scenario 1: User is logged in AND initialTodos from SSR were empty (e.g., due to auth on SSR)
+    // OR: Client-side navigation to this page while user is logged in.
+    if (user && todos.length === 0 && initialTodos.length === 0) {
+      loadTodos(); // Fetch client-side
+    } else if (!user) {
+      setTodos([]); // Clear todos if no user
+      setLoading(false); // Stop loading if no user
+    }
+    // No explicit call to loadTodos here if initialTodos were provided by SSR.
+    // The state is already populated.
+  }, [user, initialTodos]); // Re-run if user or initialTodos prop changes
 
   // Handle adding a new todo item
   const handleAddTodo = async (e) => {
@@ -145,17 +159,6 @@ export default function TodoApp() {
       setLoading(false); // End loading
     }
   };
-
-  // Effect to load todos when the component mounts or user changes
-  useEffect(() => {
-    if (user) {
-      // Only load if a user is logged in
-      loadTodos();
-    } else {
-      setTodos([]); // Clear todos if no user
-      setLoading(false); // Stop loading if no user
-    }
-  }, [user]); // Re-run if the user object changes
 
   // Handle user logout
   const handleSignOut = async () => {

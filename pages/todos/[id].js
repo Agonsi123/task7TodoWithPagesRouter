@@ -1,68 +1,101 @@
 import React, { useState, useEffect } from "react";
-
 // Use useRouter from 'next/router' for Pages Router
 import { useRouter } from "next/router";
-
 // Import our API helper function to fetch a single todo
 import { fetchTodo } from "../../utils/helper"; 
+import { useAuth } from "../../contexts/AuthContext";
+// Import the dynamic API route handler directly
+import { default as todoDetailsApiHandler } from '../api/todos/[id]';
 
-import { useAuth } from "../../contexts/AuthContext"; 
 
-export default function TodoDetailsPage() {
+
+export async function getServerSideProps(context) {
+  const { id } = context.params; // Get the ID from the URL (server-side)
+
+  let initialTodo = null;
+
+  try {
+    // Simulating the API call to your /api/todos/[id] handler
+    const apiReq = {
+      method: 'GET',
+      headers: {
+        // If you had an authenticated session cookie, pass it here.
+        // 'cookie': context.req.headers.cookie || '',
+      },
+      query: { id: id }, // Pass the dynamic ID to the API handler's req.query
+    };
+    const apiRes = {
+      statusCode: 200,
+      jsonData: null,
+      status: function(statusCode) { this.statusCode = statusCode; return this; },
+      json: function(data) { this.jsonData = data; return this; },
+      end: function() { return this; },
+      setHeader: function() { return this; },
+    };
+
+    await todoDetailsApiHandler(apiReq, apiRes);
+
+    if (apiRes.statusCode === 200) {
+      initialTodo = apiRes.jsonData;
+    } else if (apiRes.statusCode === 404) {
+      console.warn(`SSR: Todo with ID ${id} not found.`);
+    } else {
+      console.warn(`SSR: Fetching todo ${id} failed with status ${apiRes.statusCode}:`, apiRes.jsonData?.error);
+    }
+
+  } catch (error) {
+    console.error(`Error fetching todo ${id} in getServerSideProps:`, error);
+  }
+
+  // Pass the fetched todo as props to the TodoDetailsPage component
+  return {
+    props: {
+      initialTodo,
+    },
+  };
+}
+
+
+export default function TodoDetailsPage({ initialTodo }) {
   const router = useRouter();
-  const { user } = useAuth(); // Get authenticated user context
+  const { user, loading: authLoading } = useAuth(); // Get authenticated user context
 
   // For Pages Router, dynamic parameters are accessed via router.query
-  const { id } = router.query;
+  //   const { id } = router.query;
 
-  const [todo, setTodo] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [todo, setTodo] = useState(initialTodo);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const loadTodoDetails = async () => {
-      // Ensure user is logged in before fetching data
-      // This is a client-side redirect. Server-side checks are also important in API.
-      if (!user) {
-        router.push("/"); // Redirect to home/login page if no user
-        return;
-      }
-
-      // Ensure ID is available from router.query
-      if (!id) {
-        setLoading(false); // No ID, so stop loading
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-      try {
-        // Use the fetchTodo function from our API utility
-        const fetchedTodo = await fetchTodo(id);
-        setTodo(fetchedTodo);
-      } catch (err) {
-        setError(`Failed to load todo details: ${err.message || "Unknown error"}`);
-        console.error("Error loading todo details:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    // Only run if user is logged in and ID is available
-    if (user && id) {
-      loadTodoDetails();
-    } else if (!user) {
-      // If user logs out while on this page, immediately redirect
+    // If SSR didn't find the todo, or user isn't authenticated, or it's a client-side navigation
+    if (!authLoading && user && !todo && router.isReady && router.query.id) {
+      const loadClientSideTodoDetails = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+          const fetchedTodo = await fetchTodo(router.query.id);
+          setTodo(fetchedTodo);
+        } catch (err) {
+          setError(`Failed to load todo details: ${err.message || "Unknown error"}`);
+          console.error("Error loading todo details client-side:", err);
+        } finally {
+          setLoading(false);
+        }
+      };
+      loadClientSideTodoDetails();
+    } else if (!authLoading && !user && router.isReady && router.query.id) {
+      // If no user and auth is not loading, redirect if user arrived here unauthenticated
       router.push("/");
     }
-  }, [id, user, router]); // Re-fetch if ID or user changes, or router (though router rarely changes)
+  }, [initialTodo, user, authLoading, router, todo, router.query.id]);
 
   const handleBackToList = () => {
     router.push("/"); // Navigate back to the main todo list
   };
 
-  // --- Conditional Rendering ---
-  if (loading) {
+  // --- Conditional Rendering combine with client-side fetch loading---
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 text-gray-700">
         Loading todo details...
@@ -84,8 +117,9 @@ export default function TodoDetailsPage() {
     );
   }
 
-  // If todo is null (e.g., ID was in URL but todo not found)
-  if (!todo) {
+  // If todo is null (e.g., ID was in URL but todo not found, even after client-side fetch)
+  // Or if user is no longer logged in (after hydration))
+  if (!todo || !user) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 text-gray-700 p-4">
         <p className="mb-4">Todo item not found or you do not have access.</p>

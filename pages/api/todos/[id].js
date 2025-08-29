@@ -6,7 +6,8 @@ export default async function handler(req, res) {
 
   // --- Common Authentication Logic ---
   let userId = null;
-  const authHeader = req.headers.authorization;
+  const authHeader =
+    req.headers && req.headers.authorization ? req.headers.authorization : undefined;
 
   if (authHeader && authHeader.startsWith("Bearer ")) {
     const idToken = authHeader.split("Bearer ")[1];
